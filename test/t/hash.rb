@@ -836,7 +836,9 @@ end
     cls = Class.new(Hash){attr_accessor :foo}
     [ar_entries, ht_entries].each do |entries|
       params = nil
-      filter = ->((k, v)) do
+      # a Proc rather than a lambda: Hash yields the key and the value as two
+      # arguments, as CRuby does, and Array yields each pair as one
+      filter = Proc.new do |k, v|
         params << [k, v]
         String === k
       end
@@ -862,7 +864,9 @@ end
   assert("Hash##{meth}") do
     [ar_entries, ht_entries].each do |entries|
       params = nil
-      filter = ->((k, v)) do
+      # a Proc rather than a lambda: Hash yields the key and the value as two
+      # arguments, as CRuby does, and Array yields each pair as one
+      filter = Proc.new do |k, v|
         params << [k, v]
         String === k
       end
@@ -1462,4 +1466,15 @@ assert('Hash#select and Hash#reject keep compare_by_identity') do
   assert_true h.reject { false }.compare_by_identity?
   assert_equal 2, h.reject { false }.size
   assert_false({"a" => 1}.select { true }.compare_by_identity?)
+end
+
+assert('Hash#select, #reject, #select! and #reject! yield the key and the value') do
+  h = {a: 1, b: 2}
+  assert_equal({a: 1}, h.select { |k| k == :a })
+  assert_equal({b: 2}, h.reject { |k| k == :a })
+  assert_equal({a: 1}, h.dup.select! { |k| k == :a })
+  assert_equal({b: 2}, h.dup.reject! { |k| k == :a })
+  args = []
+  h.select { |*a| args << a }
+  assert_equal [[:a, 1], [:b, 2]], args
 end
