@@ -82,15 +82,17 @@ double round(double x) {
 /* #define NO_GMTIME_R */
 
 #ifdef _WIN32
-#ifdef _MSC_VER
-/* Win32 platform do not provide gmtime_r/localtime_r; emulate them using gmtime_s/localtime_s */
-#define gmtime_r(tp, tm)    ((gmtime_s((tm), (tp)) == 0) ? (tm) : NULL)
-#define localtime_r(tp, tm)    ((localtime_s((tm), (tp)) == 0) ? (tm) : NULL)
-#else
-#define NO_GMTIME_R
+/* The C runtime's gmtime and localtime (and their _s forms) refuse a time_t
+   before 1970 or after 3000, where CRuby has a time: Sequel's postgres adapter
+   makes Time.utc(-4713, 11, 24) and Time.utc(294277) as it loads. So Windows
+   breaks a UTC time down here, and a local one outside that span at the
+   standard offset (summer time is unknown there). */
+static struct tm *win_gmtime_r(const time_t *tp, struct tm *tm);
+static struct tm *win_localtime_r(const time_t *tp, struct tm *tm);
+#define gmtime_r(tp, tm)    win_gmtime_r((tp), (tm))
+#define localtime_r(tp, tm)    win_localtime_r((tp), (tm))
 #endif
-#endif
-#ifdef __STRICT_ANSI__
+#if defined(__STRICT_ANSI__) && !defined(_WIN32)
 /* Strict ANSI (e.g. -std=c99) do not provide gmtime_r/localtime_r */
 #define NO_GMTIME_R
 #endif
@@ -181,9 +183,11 @@ gettimeofday(struct timeval *tv, void *tz)
 #ifndef USE_SYSTEM_TIMEGM
 #define timegm my_timgm
 
-/* Helper function to check for leap years. */
-static unsigned int
-is_leapyear(unsigned int y)
+/* Helper function to check for leap years. Signed: a year before 1 wrapped
+   as unsigned, and its century test went wrong (Time.utc(-4713, 11, 24) came
+   out a day early). */
+static int
+is_leapyear(int y)
 {
   return (y % LEAP_YEAR_DIVISOR) == 0 && ((y % LEAP_YEAR_NON_DIVISOR_CENTURY) != 0 || (y % LEAP_YEAR_DIVISOR_QUAD_CENTURY) == 0);
 }
@@ -218,6 +222,79 @@ timegm(struct tm *tm)
   r += tm->tm_hour * SECS_PER_MIN * MINS_PER_HOUR;
   r += tm->tm_min * SECS_PER_MIN;
   r += tm->tm_sec;
+  return r;
+}
+#endif
+
+#ifdef _WIN32
+static struct tm*
+win_gmtime_r(const time_t *tp, struct tm *tm)
+{
+  /* days since 1970-01-01 to a civil date, as in Howard Hinnant's
+     civil_from_days, counting the year from 1 March */
+  int64_t t = (int64_t)*tp;
+  int64_t days = t / 86400, secs = t % 86400;
+  if (secs < 0) { secs += 86400; days--; }
+  int64_t z = days + 719468;
+  int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+  int64_t doe = z - era * 146097;                                 /* [0, 146096] */
+  int64_t yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;  /* [0, 399] */
+  int64_t doy = doe - (365*yoe + yoe/4 - yoe/100);                /* [0, 365], from 1 March */
+  int64_t mp = (5*doy + 2) / 153;                                 /* [0, 11], from March */
+  int64_t y = yoe + era * 400 + (mp >= 10);
+  int leap = (y % 4 == 0) && (y % 100 != 0 || y % 400 == 0);
+
+  if (y - TM_YEAR_BASE < INT_MIN || y - TM_YEAR_BASE > INT_MAX) return NULL;
+  memset(tm, 0, sizeof(*tm));
+  tm->tm_year = (int)(y - TM_YEAR_BASE);
+  tm->tm_mon = (int)(mp < 10 ? mp + 2 : mp - 10);
+  tm->tm_mday = (int)(doy - (153*mp + 2)/5 + 1);
+  tm->tm_yday = (int)(mp < 10 ? doy + 59 + leap : doy - 306);
+  tm->tm_wday = (int)(((days % 7) + 11) % 7);                     /* 1970-01-01 was a Thursday */
+  tm->tm_hour = (int)(secs / 3600);
+  tm->tm_min = (int)(secs / 60 % 60);
+  tm->tm_sec = (int)(secs % 60);
+  tm->tm_isdst = 0;
+  return tm;
+}
+
+static struct tm*
+win_localtime_r(const time_t *tp, struct tm *tm)
+{
+  /* 3001-01-01 UTC; the runtime's own check can raise its invalid-parameter
+     handler, so a time it would refuse is not handed to it */
+  struct tm *r = (*tp < 0 || *tp >= (time_t)32535216000LL) ? NULL : localtime(tp);
+  long west;
+  time_t local;
+
+  if (r) {
+    *tm = *r;
+    return tm;
+  }
+  _tzset();
+  if (_get_timezone(&west) != 0) west = 0;
+  local = *tp - west;
+  if (!win_gmtime_r(&local, tm)) return NULL;
+  return tm;
+}
+
+/* mktime has the same span; outside it, the standard offset again */
+static time_t
+win_mktime(struct tm *tm)
+{
+  struct tm in = *tm;
+  time_t r = mktime(tm);
+  long west;
+
+  if (r != (time_t)-1) return r;
+  *tm = in;
+  _tzset();
+  if (_get_timezone(&west) != 0) west = 0;
+  r = timegm(tm) + west;
+  {
+    time_t local = r - west;
+    win_gmtime_r(&local, tm);
+  }
   return r;
 }
 #endif
@@ -705,7 +782,11 @@ time_mktime(mrb_state *mrb, mrb_int ayear, mrb_int amonth, mrb_int aday,
     mk = timegm;
   }
   else {
+#ifdef _WIN32
+    mk = win_mktime;
+#else
     mk = mktime;
+#endif
   }
 
   time_t nowsecs = (*mk)(&nowtime);
