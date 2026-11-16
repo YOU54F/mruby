@@ -4066,8 +4066,15 @@ RETRY_TRY_BLOCK:
             mrb_bool priv = TRUE;
             if (m.flags & MRB_METHOD_PRIVATE_FL) {
             vis_err:;
-              mrb_value args = (ci->n == 15) ? regs[1] : mrb_ary_new_from_values(mrb, ci->n, regs+1);
-              vis_error(mrb, mid, args, recv, priv);
+              /* CRuby sends a call it refuses to the receiver's own method_missing, when it has one, before it raises
+                 (an RSpec null-object double answers `logger.warn` so, where Kernel#warn is private) */
+              if (!mrb_func_basic_p(mrb, recv, MRB_SYM(method_missing), mrb_obj_missing)) {
+                m = prepare_missing(mrb, ci, recv, mid, FALSE);
+              }
+              else {
+                mrb_value args = (ci->n == 15) ? regs[1] : mrb_ary_new_from_values(mrb, ci->n, regs+1);
+                vis_error(mrb, mid, args, recv, priv);
+              }
             }
             /* protected methods are callable when the caller's `self` belongs
                to the class (or module) where the method is defined; one a
