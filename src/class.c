@@ -5057,6 +5057,27 @@ mrb_mod_dup(mrb_state *mrb, mrb_value self)
   return mod;
 }
 
+/* Marks the named methods so src/vm.c passes on the keywords they collect in a
+   rest array. The mark is on the code, as the method's proc may be shared. */
+static mrb_value
+mrb_mod_ruby2_keywords(mrb_state *mrb, mrb_value mod)
+{
+  const mrb_value *argv;
+  mrb_int argc;
+  mrb_get_args(mrb, "*", &argv, &argc);
+  for (mrb_int i = 0; i < argc; i++) {
+    struct RClass *c = mrb_class_ptr(mod);
+    mrb_method_t m = mrb_method_search_vm(mrb, &c, mrb_obj_to_sym(mrb, argv[i]));
+    if (MRB_METHOD_UNDEF_P(m) || !MRB_METHOD_PROC_P(m)) continue;
+    const struct RProc *p = MRB_METHOD_PROC(m);
+    while (p && MRB_PROC_ALIAS_P(p)) p = p->upper;
+    if (p && !MRB_PROC_CFUNC_P(p) && p->body.irep) {
+      ((mrb_irep*)p->body.irep)->flags |= MRB_IREP_RUBY2_KEYWORDS;
+    }
+  }
+  return mrb_nil_value();
+}
+
 static mrb_value
 mrb_mod_module_function(mrb_state *mrb, mrb_value mod)
 {
@@ -5553,6 +5574,7 @@ static const mrb_mt_entry mod_rom_entries[] = {
   MRB_MT_ENTRY(mrb_mod_module_eval,     MRB_SYM(module_eval),      MRB_ARGS_ANY()),                    /* 15.2.2.4.35 */
   MRB_MT_ENTRY(mrb_mod_module_function, MRB_SYM(module_function),  MRB_ARGS_ANY() | MRB_MT_PRIVATE),
   MRB_MT_ENTRY(mrb_mod_prepend,         MRB_SYM(prepend),          MRB_ARGS_ANY()),
+  MRB_MT_ENTRY(mrb_mod_ruby2_keywords,  MRB_SYM(ruby2_keywords),   MRB_ARGS_ANY() | MRB_MT_PRIVATE),
   MRB_MT_ENTRY(mrb_do_nothing,          MRB_SYM(prepended),        MRB_ARGS_REQ(1) | MRB_MT_PRIVATE),
   MRB_MT_ENTRY(mrb_mod_private,         MRB_SYM(private),          MRB_ARGS_ANY() | MRB_MT_PRIVATE),   /* 15.2.2.4.36 */
   MRB_MT_ENTRY(mrb_mod_private_class_method, MRB_SYM(private_class_method), MRB_ARGS_ANY()),
