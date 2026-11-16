@@ -597,4 +597,17 @@ assert('string interpolation with refinement') do
   end
 end
 
+module RefTestToProcM
+  refine(String) { def ref_shout; upcase + "!"; end }
+end
+
+assert('Refinement: Symbol#to_proc sees the refinements in scope') do
+  c = Class.new do
+    using RefTestToProcM
+    define_method(:go) { %w[a b].map(&:ref_shout) }
+  end
+  assert_equal ["A!", "B!"], c.new.go
+  assert_raise(NoMethodError) { %w[a].map(&:ref_shout) }
+end
+
 end # defined? Refinement
