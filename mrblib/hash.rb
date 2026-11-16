@@ -164,6 +164,8 @@ class Hash
   #
   #  1.8/1.9 Hash#reject! returns Hash; ISO says nothing.
   #
+  # reject!, reject, select! and select (and keep_if in mruby-hash-ext) yield the key and the value as two arguments, as CRuby's
+  # do, so a block with one parameter gets the key, not the pair (anyway_config filters its config's trace with `keep_if { |key| }`).
   def reject!(&block)
     return to_enum(:reject!) unless block
     # Nothing to reject means no `delete` below, and `delete` is what would
@@ -172,7 +174,7 @@ class Hash
 
     keys = []
     self.each {|k,v|
-      if yield([k, v])
+      if yield(k, v)
         keys.push(k)
       end
     }
@@ -204,7 +206,7 @@ class Hash
     h = {}
     h.compare_by_identity if compare_by_identity?
     self.each {|k,v|
-      unless yield([k, v])
+      unless yield(k, v)
         h[k] = v
       end
     }
@@ -229,7 +231,7 @@ class Hash
 
     keys = []
     self.each {|k,v|
-      unless yield([k, v])
+      unless yield(k, v)
         keys.push(k)
       end
     }
@@ -261,7 +263,7 @@ class Hash
     h = {}
     h.compare_by_identity if compare_by_identity?
     self.each {|k,v|
-      if yield([k, v])
+      if yield(k, v)
         h[k] = v
       end
     }

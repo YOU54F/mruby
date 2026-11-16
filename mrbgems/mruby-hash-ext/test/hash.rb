@@ -568,3 +568,10 @@ assert('Hash derived from one comparing by identity') do
   assert_equal 2, g.size
   assert_false Hash[{"a" => 1}].compare_by_identity?
 end
+
+assert('Hash#keep_if yields the key and the value') do
+  assert_equal({b: 2}, {a: 1, b: 2}.keep_if { |k| k == :b })
+  args = []
+  {a: 1}.keep_if { |*a| args << a }
+  assert_equal [[:a, 1]], args
+end

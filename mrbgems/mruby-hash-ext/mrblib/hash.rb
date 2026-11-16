@@ -198,7 +198,7 @@ class Hash
     raise FrozenError, "can't modify frozen #{self.class}" if frozen?
 
     self.each do |k, v|
-      unless block.call([k, v])
+      unless block.call(k, v)
         self.delete(k)
       end
     end
