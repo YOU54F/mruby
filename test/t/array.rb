@@ -871,3 +871,17 @@ assert('Array#[]= with a length or range end at the Integer limit') do
   assert_equal([1], a)
   assert_raise(IndexError) { [1][max..-max-1] = 2 }
 end
+
+assert('Array#hash of Symbols') do
+  assert_not_equal [:a].hash, [:b].hash
+  one = {}
+  pair = {}
+  100.times do |i|
+    one[[:"enum_hash_test_#{i}"].hash] = true
+    pair[[:"enum_hash_test_#{i}", i].hash] = true
+  end
+  assert_equal 100, one.size
+  assert_equal 100, pair.size
+  assert_not_equal [1, 2].hash, [2, 1].hash
+  assert_equal [:a, 1].hash, [:a, 1].hash
+end
