@@ -2000,3 +2000,14 @@ assert('Module#public, #private, #protected and #module_function return their na
   assert_equal [:f, :g], r[:mf]
   assert_nil r[:mf0]
 end
+
+assert('including instances of a Module subclass') do
+  sub = Class.new(Module) { def initialize(n); @n = n; end }
+  a = sub.new(1)
+  b = sub.new(2)
+  c = Class.new { include a; include b }
+  assert_true c.include?(a)
+  assert_true c.include?(b)
+  b.__send__(:define_method, :later) { :later }
+  assert_equal :later, c.new.later
+end

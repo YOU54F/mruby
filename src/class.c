@@ -2248,6 +2248,9 @@ include_module_at(mrb_state *mrb, struct RClass *c, struct RClass *ins_pos, stru
     int original_seen = FALSE;
     int superclass_seen = FALSE;
 
+    /* An instance of a Module subclass whose initialize skips super has no method table yet, and every such module's
+       NULL table would match the others' below: the second one included would be taken as already there. */
+    if (m->tt == MRB_TT_MODULE) boot_initmod(mrb, m);
     if (c == ins_pos) original_seen = TRUE;
     if (m->flags & MRB_FL_CLASS_IS_PREPENDED)
       goto skip;
