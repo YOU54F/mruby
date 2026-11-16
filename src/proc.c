@@ -263,7 +263,12 @@ closure_setup(mrb_state *mrb, struct RProc *p)
     }
     e = mrb_env_new(mrb, mrb->c, ci, up->body.irep->nlocals, ci->stack, tc);
     ci->u.env = e;
-    if (MRB_PROC_ENV_P(up) && MRB_PROC_ENV(up)->cxt == NULL) {
+    /* A block in a method made by define_method belongs to that method, so a
+       `super` in it goes to the method's name and not to the one the proc was
+       written in. Such a proc is strict, and called by Proc#call it has the
+       written method's name in ci->mid already. */
+    if (MRB_PROC_ENV_P(up) && MRB_PROC_ENV(up)->cxt == NULL &&
+        !(MRB_PROC_STRICT_P(up) && ci->mid != 0)) {
       e->mid = MRB_PROC_ENV(up)->mid;
     }
   }

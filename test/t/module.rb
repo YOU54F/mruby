@@ -2000,3 +2000,11 @@ assert('Module#public, #private, #protected and #module_function return their na
   assert_equal [:f, :g], r[:mf]
   assert_nil r[:mf0]
 end
+
+assert('super in a block inside a define_method body') do
+  base = Class.new { def m; "base"; end }
+  child = Class.new(base) do
+    define_method(:m) { [1].map { super() + "+child" }.first }
+  end
+  assert_equal "base+child", child.new.m
+end
