@@ -798,6 +798,64 @@ mrb_hal_io_fdset_isset(mrb_state *mrb, int fd, mrb_io_fdset *fdset)
   return 0;
 }
 
+/* Winsock's select() takes sockets only, and mruby's IO numbers on Windows
+   are of two kinds: a socket is its SOCKET, while a file or pipe is a C
+   runtime descriptor. Handed a pipe, select() fails with WSAENOTSOCK and
+   leaves errno alone. So the descriptors that are not sockets are polled
+   here: a pipe is readable when PeekNamedPipe finds bytes or the writer has
+   gone, and anything else is always ready, as a disk file is for select(2).
+   While none is ready, the sockets are waited on (or the thread sleeps) in
+   short slices until the timeout. */
+
+#define SELECT_SLICE_MS 10
+
+static int
+fd_is_socket(int fd)
+{
+  int type, len = sizeof(type);
+  return getsockopt((SOCKET)fd, SOL_SOCKET, SO_TYPE, (char*)&type, &len) == 0;
+}
+
+static int
+fd_readable_now(int fd)
+{
+  HANDLE h = (HANDLE)_get_osfhandle(fd);
+  DWORD avail = 0;
+
+  if (h == INVALID_HANDLE_VALUE) return 1;  /* let the read report it */
+  if (GetFileType(h) != FILE_TYPE_PIPE) return 1;
+  if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL)) return 1;  /* EOF */
+  return avail > 0;
+}
+
+static void
+set_errno_from_wsa_error(int error)
+{
+  switch (error) {
+    case WSAEINTR:   errno = EINTR;  break;
+    case WSAENOTSOCK:
+    case WSAEBADF:   errno = EBADF;  break;
+    case WSAEFAULT:
+    case WSAEINVAL:  errno = EINVAL; break;
+    case WSAENOBUFS: errno = ENOMEM; break;
+    default:         errno = EIO;    break;
+  }
+}
+
+/* Moves the sockets of `in` to `socks` and the rest to `others`. */
+static void
+split_fdset(const fd_set *in, fd_set *socks, fd_set *others)
+{
+  FD_ZERO(socks);
+  FD_ZERO(others);
+  if (!in) return;
+  for (u_int i = 0; i < in->fd_count; i++) {
+    int fd = (int)in->fd_array[i];
+    if (fd_is_socket(fd)) FD_SET(in->fd_array[i], socks);
+    else FD_SET(in->fd_array[i], others);
+  }
+}
+
 int
 mrb_hal_io_select(mrb_state *mrb, int nfds,
                    mrb_io_fdset *readfds,
@@ -808,18 +866,90 @@ mrb_hal_io_select(mrb_state *mrb, int nfds,
   fd_set *r = readfds ? &readfds->fds : NULL;
   fd_set *w = writefds ? &writefds->fds : NULL;
   fd_set *e = errorfds ? &errorfds->fds : NULL;
-  struct timeval *tv = NULL;
-  struct timeval tv_storage;
+  fd_set rs, ro, ws, wo, es, eo;
+  fd_set rr, wr, er;
+  struct timeval tv;
+  ULONGLONG deadline = 0;
+  int nsock, n;
   (void)mrb;
   (void)nfds;  /* Windows select() doesn't use nfds */
 
+  split_fdset(r, &rs, &ro);
+  split_fdset(w, &ws, &wo);
+  split_fdset(e, &es, &eo);
+  nsock = rs.fd_count + ws.fd_count + es.fd_count;
+
   if (timeout) {
-    tv_storage.tv_sec = (long)timeout->tv_sec;
-    tv_storage.tv_usec = (long)timeout->tv_usec;
-    tv = &tv_storage;
+    deadline = GetTickCount64() + (ULONGLONG)timeout->tv_sec * 1000
+             + (ULONGLONG)(timeout->tv_usec + 999) / 1000;
   }
 
-  return select(0, r, w, e, tv);
+  /* Sockets only: one select(), as before. */
+  if (ro.fd_count + wo.fd_count + eo.fd_count == 0 && nsock > 0) {
+    struct timeval *tp = NULL;
+    if (timeout) {
+      tv.tv_sec = (long)timeout->tv_sec;
+      tv.tv_usec = (long)timeout->tv_usec;
+      tp = &tv;
+    }
+    n = select(0, r, w, e, tp);
+    if (n == SOCKET_ERROR) {
+      set_errno_from_wsa_error(WSAGetLastError());
+      return -1;
+    }
+    return n;
+  }
+
+  for (;;) {
+    int ready = 0;
+    ULONGLONG now;
+    DWORD slice = SELECT_SLICE_MS;
+
+    /* Descriptors that are not sockets. Writing never waits and nothing
+       reports an exceptional condition. */
+    FD_ZERO(&rr); FD_ZERO(&wr); FD_ZERO(&er);
+    for (u_int i = 0; i < ro.fd_count; i++) {
+      if (fd_readable_now((int)ro.fd_array[i])) { FD_SET(ro.fd_array[i], &rr); ready++; }
+    }
+    for (u_int i = 0; i < wo.fd_count; i++) {
+      FD_SET(wo.fd_array[i], &wr); ready++;
+    }
+
+    now = GetTickCount64();
+    if (!ready && timeout) {
+      if (now >= deadline) slice = 0;
+      else if (deadline - now < slice) slice = (DWORD)(deadline - now);
+    }
+    if (ready) slice = 0;
+
+    if (nsock > 0) {
+      fd_set rs2 = rs, ws2 = ws, es2 = es;
+      tv.tv_sec = 0;
+      tv.tv_usec = (long)slice * 1000;
+      n = select(0, rs.fd_count ? &rs2 : NULL, ws.fd_count ? &ws2 : NULL,
+                 es.fd_count ? &es2 : NULL, &tv);
+      if (n == SOCKET_ERROR) {
+        set_errno_from_wsa_error(WSAGetLastError());
+        return -1;
+      }
+      if (n > 0) {
+        for (u_int i = 0; i < rs2.fd_count; i++) FD_SET(rs2.fd_array[i], &rr);
+        for (u_int i = 0; i < ws2.fd_count; i++) FD_SET(ws2.fd_array[i], &wr);
+        for (u_int i = 0; i < es2.fd_count; i++) FD_SET(es2.fd_array[i], &er);
+        ready += n;
+      }
+    }
+    else if (slice > 0) {
+      Sleep(slice);
+    }
+
+    if (ready || (timeout && GetTickCount64() >= deadline)) {
+      if (r) *r = rr;
+      if (w) *w = wr;
+      if (e) *e = er;
+      return ready;
+    }
+  }
 }
 
 /*

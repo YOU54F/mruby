@@ -1382,3 +1382,18 @@ assert('IO.read and IO.write with an offset that cannot be sought') do
 end
 
 MRubyIOTestUtil.io_test_cleanup
+
+assert('IO.select on a pipe') do
+  IO.pipe do |r, w|
+    ready = IO.select([r], nil, nil, 0.05)
+    assert_true ready.nil? || ready[0].empty?
+    w.write "x"
+    w.flush
+    ready = IO.select([r], nil, nil, 5)
+    assert_not_nil ready
+    assert_equal [r], ready[0]
+    assert_equal "x", r.sysread(1)
+    _, writable, = IO.select(nil, [w], nil, 5)
+    assert_equal [w], writable
+  end
+end
