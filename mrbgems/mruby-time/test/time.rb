@@ -371,3 +371,15 @@ assert('2000 times 500us make a second') do
   end
   assert_equal(0, t.usec)
 end
+
+assert('Time.utc far from the epoch') do
+  t = begin; Time.utc(-4713, 11, 24); rescue ArgumentError, RangeError; nil; end
+  skip "time_t does not reach year -4713" unless t
+  assert_equal [-4713, 11, 24, 1], [t.year, t.month, t.day, t.wday]
+  assert_equal(-210866803200, t.to_i)
+  t = Time.utc(-1000, 3, 1)
+  assert_equal [-1000, 3, 1], [t.year, t.month, t.day]
+  t = Time.utc(294277, 1, 1)
+  assert_equal [294277, 1, 1], [t.year, t.month, t.day]
+  assert_equal(-4713, Time.at(-210866803200).utc.year)
+end
