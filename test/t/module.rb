@@ -1397,8 +1397,10 @@ assert('method_missing is dispatched regardless of its visibility') do
   end
   assert_equal [:baz, [3]], ProtMissingTest.new.baz(3)
 
-  # an explicit call to `method_missing` itself is still checked
-  assert_raise(NoMethodError) { PrivMissingTest.new.method_missing(:x) }
+  # an explicit call to a private `method_missing` is itself a missing
+  # method, and goes to `method_missing` as CRuby does; the default one raises
+  assert_equal [:method_missing, [:x]], PrivMissingTest.new.method_missing(:x)
+  assert_raise(NoMethodError) { Object.new.method_missing(:x) }
 end
 
 assert('method visibility with meta programming') do
@@ -1999,4 +2001,17 @@ assert('Module#public, #private, #protected and #module_function return their na
   end
   assert_equal [:f, :g], r[:mf]
   assert_nil r[:mf0]
+end
+
+assert('a private method called with a receiver goes to method_missing') do
+  c = Class.new do
+    def method_missing(name, *args); [:method_missing, name]; end
+    private
+    def secret; :secret; end
+  end
+  assert_equal [:method_missing, :secret], c.new.secret
+  assert_equal :secret, c.new.__send__(:secret)
+  # without a method_missing of its own the call still raises
+  d = Class.new { private; def secret; :secret; end }
+  assert_raise(NoMethodError) { d.new.secret }
 end
