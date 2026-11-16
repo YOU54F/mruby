@@ -156,3 +156,15 @@ assert('a cfunc proc that raises, through Proc#call from C') do
   assert_raise(ArgumentError) { ProcExtTest.funcall_call(pr) }
   assert_raise(ArgumentError) { Hash.new(&pr)[:missing] }
 end
+
+assert('Proc#parameters with keywords') do
+  assert_equal([[:keyreq, :a]], Proc.new {|a:|}.parameters)
+  assert_equal([[:key, :a]], Proc.new {|a: 1|}.parameters)
+  assert_equal([[:keyreq, :a]], lambda {|a:|}.parameters)
+  assert_equal([[:keyreq, :b], [:key, :a]], lambda {|a: 1, b:|}.parameters)
+  assert_equal([[:req, :x], [:keyreq, :a], [:key, :b], [:keyrest, :r], [:block, :bl]],
+               lambda {|x, a:, b: 1, **r, &bl|}.parameters)
+  assert_equal([[:req, :x], [:key, :a], [:block, :bl]], lambda {|x, a: 1, &bl|}.parameters)
+  assert_equal([[:keyreq, :macro], [:keyreq, :context], [:keyreq, :value]],
+               Proc.new {|macro:, context:, value:|}.parameters)
+end
