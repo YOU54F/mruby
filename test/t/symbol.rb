@@ -108,3 +108,13 @@ assert('Symbol#to_s and Symbol#name outlive symbol GC') do
   assert_equal name, str
   assert_equal name, frozen
 end
+
+assert('Symbol: many interned names each find their own Symbol') do
+  names = (0...500).map { |i| "symbol_table_test_#{i}" }
+  syms = names.map { |n| n.to_sym }
+  distinct = {}
+  syms.each { |s| distinct[s] = true }
+  assert_equal 500, distinct.size
+  assert_equal names, syms.map { |s| s.to_s }
+  assert_equal syms, names.map { |n| n.to_sym }
+end

@@ -391,6 +391,17 @@ end
 - Default value is `256`.
 - Threshold for switching symbol table from linear search to hash table.
 
+`MRB_WIDE_SYMBOL_HASH`
+
+- The symbol hash table has 65536 buckets chained by `mrb_sym` instead of 256
+  chained by 8-bit gaps.
+- With the default table a bucket whose symbols lie 255 or more apart falls
+  back to stepping through every lower symbol, so interning gets slower with
+  each symbol; 100,000 symbols take about 11 seconds. With this define they
+  take 10 milliseconds.
+- Costs 256KB more once the table switches to hashing, and 4 bytes a symbol.
+  For `MRB_SYMBOL_MAX` of 0 or a large one.
+
 `MRUBY_REVISION`, `MRUBY_FULL_REVISION`
 
 - The revision the build was made from: `MRUBY_FULL_REVISION` the whole commit
