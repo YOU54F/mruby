@@ -358,8 +358,9 @@ end
 - Honored by the sends the VM makes, the operator instructions, `__send__`,
   `send`, `public_send`, `respond_to?` and `defined?(obj.method)`. Not honored
   by `Kernel#method`, `Module#instance_method`, `method_defined?`,
-  `Symbol#to_proc`, string interpolation's `to_s`, `==` asked by containers,
-  or any `mrb_funcall()` made from C.
+  string interpolation's `to_s`, `==` asked by containers, or any
+  `mrb_funcall()` made from C. `&:name` given to a call is honored, as in
+  CRuby: the block sees the refinements where it was written.
 - `using` written in a block given a class to run under (`class_eval {}`,
   `Class.new {}`, a `refine` block) is kept to that block, as CRuby keeps it.
   One written in an `eval` string installs into the enclosing file or class

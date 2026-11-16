@@ -1578,8 +1578,22 @@ static inline mrb_value
 ensure_block(mrb_state *mrb, mrb_value blk)
 {
   if (!mrb_nil_p(blk) && !mrb_proc_p(blk)) {
+#ifdef MRB_USE_REFINEMENTS
+    mrb_bool sym = mrb_symbol_p(blk);
+#endif
     blk = mrb_type_convert(mrb, blk, MRB_TT_PROC, MRB_SYM(to_proc));
     /* The stack might have been reallocated during mrb_type_convert(), see #3622 */
+#ifdef MRB_USE_REFINEMENTS
+    /* `&:name` calls the method as written at the call site, as CRuby's does: with the refinements active there
+       (`collect(&:symbolize_keys)` under `using`). Symbol#to_proc's lambda sends it, and a send looks up its caller's. */
+    struct RArray *scope = sym && mrb->refscopes_len > 0 ? mrb_vm_refinements(mrb, mrb->c->ci) : NULL;
+    if (scope) {
+      struct RProc *np = MRB_OBJ_ALLOC(mrb, MRB_TT_PROC, mrb->proc_class);
+      mrb_proc_copy(mrb, np, mrb_proc_ptr(blk));
+      mrb_proc_set_refscope(mrb, np, scope);
+      blk = mrb_obj_value(np);
+    }
+#endif
   }
   return blk;
 }
