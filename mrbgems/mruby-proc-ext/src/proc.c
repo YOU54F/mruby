@@ -164,6 +164,93 @@ kernel_proc(mrb_state *mrb, mrb_value self)
  *    prc.parameters  #=> [[:req, :x], [:opt, :y], [:rest, :other]]
  */
 
+/* Decodes the instruction at pc and returns the next one's address. */
+static const mrb_code*
+keyword_next_insn(const mrb_code *pc, uint8_t *insnp, uint32_t *ap, uint16_t *bp)
+{
+  uint32_t a = 0;
+  uint16_t b = 0;
+  uint16_t c = 0;
+  uint8_t insn = READ_B();
+  switch (insn) {
+#define OPCODE(i,x) case OP_ ## i: FETCH_ ## x (); break;
+#include <mruby/ops.h>
+#undef OPCODE
+  }
+  switch (insn) {
+  case OP_EXT1:
+    insn = READ_B();
+    switch (insn) {
+#define OPCODE(i,x) case OP_ ## i: FETCH_ ## x ## _1 (); break;
+#include <mruby/ops.h>
+#undef OPCODE
+    }
+    break;
+  case OP_EXT2:
+    insn = READ_B();
+    switch (insn) {
+#define OPCODE(i,x) case OP_ ## i: FETCH_ ## x ## _2 (); break;
+#include <mruby/ops.h>
+#undef OPCODE
+    }
+    break;
+  case OP_EXT3:
+    insn = READ_B();
+    switch (insn) {
+#define OPCODE(i,x) case OP_ ## i: FETCH_ ## x ## _3 (); break;
+#include <mruby/ops.h>
+#undef OPCODE
+    }
+    break;
+  }
+  (void)c;
+  *insnp = insn;
+  *ap = a;
+  *bp = b;
+  return pc;
+}
+
+/* Keyword names aren't where the local variable table's order would put them.
+   The code after OP_ENTER has an OP_KARG for each one, preceded by an OP_KEY_P
+   when the keyword has a default, so that says both its name and whether it is
+   required. CRuby lists the required ones first. */
+static void
+keyword_parameters(mrb_state *mrb, const mrb_irep *irep, int nkeys, mrb_value parameters)
+{
+  mrb_value optional = mrb_ary_new_capa(mrb, nkeys);
+  const mrb_code *pc = irep->iseq;
+  const mrb_code *end = irep->iseq + irep->ilen;
+  int seen = 0;
+  while (pc < end && seen < nkeys) {
+    uint8_t insn;
+    uint32_t a;
+    uint16_t b;
+    pc = keyword_next_insn(pc, &insn, &a, &b);
+    if (insn == OP_KEY_P) {
+      mrb_ary_push(mrb, optional, mrb_symbol_value(irep->syms[b]));
+    }
+    else if (insn == OP_KARG) {
+      seen++;
+      mrb_bool opt = FALSE;
+      for (mrb_int i = 0; i < RARRAY_LEN(optional); i++) {
+        if (mrb_symbol(RARRAY_PTR(optional)[i]) == irep->syms[b]) opt = TRUE;
+      }
+      if (!opt) {
+        mrb_value e = mrb_ary_new_capa(mrb, 2);
+        mrb_ary_push(mrb, e, mrb_symbol_value(MRB_SYM(keyreq)));
+        mrb_ary_push(mrb, e, mrb_symbol_value(irep->syms[b]));
+        mrb_ary_push(mrb, parameters, e);
+      }
+    }
+  }
+  for (mrb_int i = 0; i < RARRAY_LEN(optional); i++) {
+    mrb_value e = mrb_ary_new_capa(mrb, 2);
+    mrb_ary_push(mrb, e, mrb_symbol_value(MRB_SYM(key)));
+    mrb_ary_push(mrb, e, RARRAY_PTR(optional)[i]);
+    mrb_ary_push(mrb, parameters, e);
+  }
+}
+
 mrb_value
 mrb_proc_parameters(mrb_state *mrb, mrb_value self)
 {
@@ -228,6 +315,8 @@ mrb_proc_parameters(mrb_state *mrb, mrb_value self)
   parameters_list[4].size = MRB_ASPEC_KDICT(aspec);
   parameters_list[5].size = MRB_ASPEC_BLOCK(aspec);
   parameters_list[6].size = MRB_ASPEC_KEY(aspec);
+  int nkeys = has_lv ? parameters_list[6].size : 0;
+  if (nkeys) parameters_list[6].size = 0;
 
   int max = 0;
   for (i = 0; parameters_list[i].name; i++) {
@@ -261,7 +350,10 @@ mrb_proc_parameters(mrb_state *mrb, mrb_value self)
     }
     /* need to skip empty block slot */
     if (p->size == 0 && p->name == MRB_SYM(block)) i++;
+    /* keywords reserve the dict's slot even with no **rest to name it */
+    if (nkeys && p->size == 0 && p->name == MRB_SYM(keyrest)) i++;
   }
+  if (nkeys) keyword_parameters(mrb, proc->body.irep, nkeys, parameters);
   if (!mrb_nil_p(krest)) mrb_ary_push(mrb, parameters, krest);
   if (!mrb_nil_p(block)) mrb_ary_push(mrb, parameters, block);
   return parameters;
