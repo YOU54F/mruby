@@ -16,7 +16,15 @@ enum_update_hash(mrb_state *mrb, mrb_value self)
   mrb_int hv;
 
   mrb_get_args(mrb, "iii", &hash, &index, &hv);
-  hash ^= ((uint32_t)hv << (index % 16));
+  /* All the bits of the element's hash: a boxed Symbol's number sits above
+     bit 32, so truncating it to uint32_t gave every [:sym] one hash. The
+     multiply makes the result depend on the order without the index. */
+  {
+    uint64_t h = ((uint64_t)hash ^ (uint64_t)hv) * 0x100000001b3ULL;
+    h ^= h >> 29;
+    (void)index;
+    hash = (mrb_int)(h & 0xfffffffffffffffULL);
+  }
 
   return mrb_int_value(mrb, hash);
 }
