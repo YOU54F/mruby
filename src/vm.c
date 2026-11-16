@@ -2895,6 +2895,13 @@ vm_op_enter(mrb_state *mrb, uint32_t a)
   }
   if (!kd) {
     if (!mrb_nil_p(kdict) && mrb_hash_p(kdict) && mrb_hash_size(mrb, kdict) > 0) {
+      /* A method marked by ruby2_keywords collects its keywords into its rest
+         array as a flagged copy, which a later splat turns back into keywords. */
+      if (r && (irep->flags & MRB_IREP_RUBY2_KEYWORDS)) {
+        kdict = mrb_hash_dup(mrb, kdict);
+        RHASH(kdict)->flags |= MRB_HASH_RUBY2_KEYWORDS;
+        regs[mrb_ci_kidx(ci)] = kdict;
+      }
       if (argc < 14) {
         ci->n++;
         argc++;    /* include kdict in normal arguments */
@@ -4004,6 +4011,23 @@ RETRY_TRY_BLOCK:
       }
 
       mrb_assert(bidx < irep->nregs);
+      /* A splat whose last element is a flagged hash passes it as keywords. The
+         keywords take the block's register, so the block moves up one, which
+         may be past the registers this frame reserved. */
+      if (c == CALL_MAXARGS && mrb_array_p(regs[a+1]) && RARRAY_LEN(regs[a+1]) > 0) {
+        mrb_int alen = RARRAY_LEN(regs[a+1]);
+        mrb_value last = RARRAY_PTR(regs[a+1])[alen-1];
+        if (mrb_hash_p(last) && (RHASH(last)->flags & MRB_HASH_RUBY2_KEYWORDS)) {
+          mrb_stack_extend(mrb, a+4);
+          mrb_value args = mrb_ary_new_from_values(mrb, alen-1, RARRAY_PTR(regs[a+1]));
+          regs[a+3] = regs[a+2];
+          regs[a+1] = args;
+          regs[a+2] = mrb_hash_dup(mrb, last);
+          ci = mrb->c->ci;
+          c = CALL_MAXARGS | (CALL_MAXARGS<<4);
+          bidx = new_bidx = a + mrb_bidx(CALL_MAXARGS, CALL_MAXARGS);
+        }
+      }
       if (insn == OP_SEND || insn == OP_SEND0 || insn == OP_SSEND || insn == OP_SSEND0) {
         /* clear block argument */
         SET_NIL_VALUE(regs[new_bidx]);

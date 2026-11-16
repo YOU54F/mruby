@@ -2000,3 +2000,26 @@ assert('Module#public, #private, #protected and #module_function return their na
   assert_equal [:f, :g], r[:mf]
   assert_nil r[:mf0]
 end
+
+assert('Module#ruby2_keywords') do
+  c = Class.new do
+    def target(*args, **kw); [args, kw]; end
+    def fwd(*args); target(*args); end
+    ruby2_keywords(:fwd)
+    def plain(*args); target(*args); end
+    def missing(*args); target(*args); end
+  end
+  o = c.new
+  # private, as in CRuby
+  assert_true Module.new.respond_to?(:ruby2_keywords, true)
+  assert_false Module.new.respond_to?(:ruby2_keywords)
+  assert_equal [[1], {x: 2}], o.fwd(1, x: 2)
+  assert_equal [[1, {x: 2}], {}], o.fwd(1, {x: 2})
+  assert_equal [[1, {x: 2}], {}], o.plain(1, x: 2)
+  # the marked Hash passes keywords through more than one method
+  d = Class.new(c) do
+    def outer(*args); fwd(*args); end
+    ruby2_keywords(:outer)
+  end
+  assert_equal [[1], {y: 3}], d.new.outer(1, y: 3)
+end
