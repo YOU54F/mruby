@@ -2215,7 +2215,9 @@ gen_values_upto(mrc_codegen_scope *s, mrc_node *tree, int val, int limit, size_t
 
   for (size_t i = 0; i < upto; i++) {
     t = (mrc_node *)cast->arguments.nodes[i];
-    if (nint(t) == PM_KEYWORD_HASH_NODE) break;
+    /* The keywords of a call are its caller's to pass.  In an array literal
+       (`[a: 1]`) they are its last element, a hash. */
+    if (nint(t) == PM_KEYWORD_HASH_NODE && nint(tree) != PM_ARRAY_NODE) break;
     int is_splat = nint(t) == PM_SPLAT_NODE;
     int is_forwarding = nint(t) == PM_FORWARDING_ARGUMENTS_NODE;
 
