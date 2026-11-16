@@ -871,3 +871,11 @@ assert('Array#[]= with a length or range end at the Integer limit') do
   assert_equal([1], a)
   assert_raise(IndexError) { [1][max..-max-1] = 2 }
 end
+
+assert('Array literal ending in a key: value pair') do
+  # The pairs are one Hash element, as in CRuby; an array literal takes no keywords.
+  assert_equal [{a: 1}], [a: 1]
+  assert_equal [1, {b: 2}], [1, b: 2]
+  assert_equal [1, {"c" => 3}], [1, "c" => 3]
+  assert_equal [1, {d: 4, e: 5}], [1, d: 4, e: 5]
+end
