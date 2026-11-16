@@ -27,3 +27,8 @@ end
 assert("usleep would not accept negative value") do
   assert_raise(ArgumentError) { usleep(-100) }
 end
+
+assert("sleep 0 and usleep 0 return") do
+  assert_equal 0, sleep(0)
+  assert_equal 0, usleep(0)
+end

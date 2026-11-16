@@ -30,7 +30,9 @@
 #ifdef _WIN32
     #include <windows.h>
     #define sleep(x) Sleep(x * 1000)
-    #define usleep(x) Sleep((DWORD)(((x)<1000) ? 1 : ((x)/1000)))
+    /* sleep(0) yields, as usleep(0) does elsewhere: Sleep(0), not Sleep(1), which waits out the scheduler's tick
+       (15.6ms by default). Sequel's connection pool sleeps 0 at every checkin, so each query paid that. */
+    #define usleep(x) Sleep((DWORD)(((x)<=0) ? 0 : ((x)<1000) ? 1 : ((x)/1000)))
 #else
     #include <unistd.h>
     #include <sys/time.h>
