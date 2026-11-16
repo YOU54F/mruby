@@ -34,7 +34,7 @@ MRuby::Build.new('full-debug') do |conf|
 
   # include all core GEMs
   conf.gembox 'full-core'
-  conf.cc.defines += %w(MRB_GC_STRESS MRB_USE_DEBUG_HOOK MRB_USE_REFINEMENTS MRB_USE_TASK_TRACE)
+  conf.cc.defines += %w(MRB_GC_STRESS MRB_USE_DEBUG_HOOK MRB_USE_REFINEMENTS MRB_USE_TASK_TRACE MRB_WIDE_SYMBOL_HASH)
 
   conf.enable_test
 end
